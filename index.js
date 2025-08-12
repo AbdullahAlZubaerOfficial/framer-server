@@ -46,16 +46,81 @@ async function run() {
     const userCollection = db.collection("users");
     
 
-    // user api
-    app.get('/users', async(req,res)=> {
-        try{
-            const result = await userCollection.find().toArray();
-            res.send(result);
-        } catch(error) {
-            console.error("Error fetching users: ", error);
-            res.status(500).send({message: 'Internal server error'})
-        }
-    });
+// Get all users
+app.get('/users', async (req, res) => {
+  try {
+    const result = await userCollection.find().toArray();
+    res.send(result);
+  } catch (error) {
+    console.error("Error fetching users:", error);
+    res.status(500).send({ message: 'Internal server error' });
+  }
+});
+
+// Get single user by email
+app.get('/users/:email', async (req, res) => {
+  try {
+    const email = req.params.email;
+    const user = await userCollection.findOne({ email: email });
+    if (!user) {
+      return res.status(404).send({ message: 'User not found' });
+    }
+    res.send(user);
+  } catch (error) {
+    console.error("Error fetching user:", error);
+    res.status(500).send({ message: 'Internal server error' });
+  }
+});
+
+// Create a new user
+app.post('/users', async (req, res) => {
+  try {
+    const user = req.body;
+    const existingUser = await userCollection.findOne({ email: user.email });
+    if (existingUser) {
+      return res.send({ message: 'User already exists', insertedId: null });
+    }
+    const result = await userCollection.insertOne(user);
+    res.send(result);
+  } catch (error) {
+    console.error("Error creating user:", error);
+    res.status(500).send({ message: 'Internal server error' });
+  }
+});
+
+
+
+// Update user by id (except role)
+app.patch('/users/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const updateData = req.body;
+    // role update disallow
+    if ('role' in updateData) delete updateData.role;
+
+    const filter = { _id: new ObjectId(id) };
+    const updateDoc = { $set: updateData };
+    const result = await userCollection.updateOne(filter, updateDoc);
+    res.send(result);
+  } catch (error) {
+    console.error("Error updating user:", error);
+    res.status(500).send({ message: 'Internal server error' });
+  }
+});
+
+// Delete user by id
+app.delete('/users/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const query = { _id: new ObjectId(id) };
+    const result = await userCollection.deleteOne(query);
+    res.send(result);
+  } catch (error) {
+    console.error("Error deleting user:", error);
+    res.status(500).send({ message: 'Internal server error' });
+  }
+});
+
 
 
 
