@@ -3,6 +3,8 @@ const app = express();
 const cors = require('cors');
 // const jwt = require('jsonwebtoken');
 require('dotenv').config()
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+
 
 const port = process.env.PORT || 5100;
 
@@ -120,28 +122,6 @@ app.delete('/users/:id', async (req, res) => {
     res.status(500).send({ message: 'Internal server error' });
   }
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
     // Send a ping to confirm a successful connection
