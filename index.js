@@ -1,135 +1,124 @@
-const express = require('express');
+import express from "express";
+import mongoose from "mongoose";
+import cors from "cors";
+import dotenv from "dotenv";
+
+dotenv.config();
 const app = express();
-const cors = require('cors');
-// const jwt = require('jsonwebtoken');
-require('dotenv').config()
-const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
-
-const port = process.env.PORT || 5100;
-
-
-// middleware 
 app.use(cors());
 app.use(express.json());
-app.get('/',(req,res)=>{
-    res.send('boss is sitting on port 5058');
-})
 
-app.listen(port,()=>{
-    console.log(`Boss is sitting on port ${port}`);
-})
+mongoose
+  .connect(process.env.MONGO_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
+  .then(() => console.log("MongoDB Connected"))
+  .catch((err) => console.error("MongoDB Connection Error:", err));
 
-
-// mongodb+srv://zubaerislam703:TF11e5VwBAniDcXK@cluster0.8ckfgub.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
-
-
-const { MongoClient, ServerApiVersion } = require('mongodb');
-const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.8ckfgub.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
-
-// Create a MongoClient with a MongoClientOptions object to set the Stable API version
-const client = new MongoClient(uri, {
-  serverApi: {
-    version: ServerApiVersion.v1,
-    strict: true,
-    deprecationErrors: true,
-  }
+// Add 'role' field with default 'user'
+const userSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  email: { type: String, required: true, unique: true },
+  provider: { type: String, default: "email/password" },
+  role: { type: String, enum: ["user", "admin", "moderator"], default: "user" },  // Added role
 });
 
-async function run() {
-  try {
-    // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+const User = mongoose.model("User", userSchema);
 
-
-    const db = client.db("practice");
-
-    const userCollection = db.collection("users");
-    
+app.get("/", (req, res) => {
+  res.send("API is running");
+});
 
 // Get all users
-app.get('/users', async (req, res) => {
+app.get("/api/users", async (req, res) => {
   try {
-    const result = await userCollection.find().toArray();
-    res.send(result);
+    const users = await User.find().sort({ _id: -1 });
+    res.json(users);
   } catch (error) {
-    console.error("Error fetching users:", error);
-    res.status(500).send({ message: 'Internal server error' });
+    res.status(500).json({ error: "Failed to fetch users" });
   }
 });
 
-// Get single user by email
-app.get('/users/:email', async (req, res) => {
+// Get user by ID
+app.get("/api/users/:id", async (req, res) => {
   try {
-    const email = req.params.email;
-    const user = await userCollection.findOne({ email: email });
-    if (!user) {
-      return res.status(404).send({ message: 'User not found' });
+    const user = await User.findById(req.params.id);
+    if (!user)
+      return res.status(404).json({ error: "User not found" });
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch user" });
+  }
+});
+
+// Create new user
+app.post("/api/users", async (req, res) => {
+  try {
+    const { name, email, provider, role } = req.body;
+
+    const exists = await User.findOne({ email });
+    if (exists) {
+      return res.status(400).json({ error: "User already exists" });
     }
-    res.send(user);
+
+    // Only allow roles in enum, fallback default 'user'
+    const newUser = new User({ 
+      name, 
+      email, 
+      provider, 
+      role: ["user", "admin", "moderator"].includes(role) ? role : "user" 
+    });
+    await newUser.save();
+    res.json(newUser);
   } catch (error) {
-    console.error("Error fetching user:", error);
-    res.status(500).send({ message: 'Internal server error' });
+    res.status(500).json({ error: "Failed to create user" });
   }
 });
 
-// Create a new user
-app.post('/users', async (req, res) => {
+// Update user by ID
+app.put("/api/users/:id", async (req, res) => {
   try {
-    const user = req.body;
-    const existingUser = await userCollection.findOne({ email: user.email });
-    if (existingUser) {
-      return res.send({ message: 'User already exists', insertedId: null });
+    const { name, email, provider, role } = req.body;
+
+    const user = await User.findById(req.params.id);
+    if (!user)
+      return res.status(404).json({ error: "User not found" });
+
+    if (email && email !== user.email) {
+      const emailExists = await User.findOne({ email });
+      if (emailExists)
+        return res.status(400).json({ error: "Email already in use" });
     }
-    const result = await userCollection.insertOne(user);
-    res.send(result);
+
+    user.name = name || user.name;
+    user.email = email || user.email;
+    user.provider = provider || user.provider;
+
+    // Update role only if valid
+    if (role && ["user", "admin", "moderator"].includes(role)) {
+      user.role = role;
+    }
+
+    await user.save();
+    res.json(user);
   } catch (error) {
-    console.error("Error creating user:", error);
-    res.status(500).send({ message: 'Internal server error' });
+    res.status(500).json({ error: "Failed to update user" });
   }
 });
 
-
-
-// Update user by id (except role)
-app.patch('/users/:id', async (req, res) => {
+// Delete user by ID
+app.delete("/api/users/:id", async (req, res) => {
   try {
-    const id = req.params.id;
-    const updateData = req.body;
-    // role update disallow
-    if ('role' in updateData) delete updateData.role;
-
-    const filter = { _id: new ObjectId(id) };
-    const updateDoc = { $set: updateData };
-    const result = await userCollection.updateOne(filter, updateDoc);
-    res.send(result);
+    const user = await User.findByIdAndDelete(req.params.id);
+    if (!user)
+      return res.status(404).json({ error: "User not found" });
+    res.json({ message: "User deleted successfully" });
   } catch (error) {
-    console.error("Error updating user:", error);
-    res.status(500).send({ message: 'Internal server error' });
+    res.status(500).json({ error: "Failed to delete user" });
   }
 });
 
-// Delete user by id
-app.delete('/users/:id', async (req, res) => {
-  try {
-    const id = req.params.id;
-    const query = { _id: new ObjectId(id) };
-    const result = await userCollection.deleteOne(query);
-    res.send(result);
-  } catch (error) {
-    console.error("Error deleting user:", error);
-    res.status(500).send({ message: 'Internal server error' });
-  }
-});
-
-
-    // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-  
-  } finally {
-    // Ensures that the client will close when you finish/error
-    // await client.close();
-  }
-}
-run().catch(console.dir);
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
